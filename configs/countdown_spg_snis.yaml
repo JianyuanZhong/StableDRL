@@ -1,0 +1,63 @@
+desc: Countdown-SPG-SNIS
+
+network_kwargs:
+    class_name: networks.llada_svpo.LLaDASVPO.from_pretrained
+    pretrained_model_name_or_path: GSAI-ML/LLaDA-8B-Instruct # REPLACE WITH YOUR MODEL PATH
+    trust_remote_code: true
+    torch_dtype: bfloat16
+
+tokenizer_kwargs:
+    class_name: transformers.AutoTokenizer.from_pretrained
+    pretrained_model_name_or_path: GSAI-ML/LLaDA-8B-Instruct
+
+infer_kwargs:
+    num_generations: 8
+    repeat_times: 2
+    max_steps: 128
+    gen_length: 256
+    block_size: 32
+    temperature: 0.9
+
+data_loader_kwargs:
+  class_name: dataloaders.logic_puzzles.load_countdown_dataset_and_reward
+  local_path: ./datasets/countdown_cd3_test.jsonl # REPLACE WITH YOUR DATASET PATH
+  batch_size: 1
+  num_workers: 4
+  max_rows: 100000000
+
+loss_kwargs:
+    spg_beta: 1.5
+    spg_omega: 0.5
+    num_mc_samples: 2
+    p_mask_perturb: 0.15
+    use_snis: true
+    ais_clip_iw: 5.0
+
+optimizer_kwargs:
+    class_name: torch.optim.AdamW
+    lr: 1.0e-6
+    betas: [0.9, 0.99]
+    eps: 1.0e-8
+    weight_decay: 0.1
+
+lr_scheduler_kwargs:
+    class_name: training.utils.lr_scheduler.linear_decay
+    total_steps: 2000
+
+training_args:
+    func_name: training.training_loop_spg_snis.training_loop
+    run_dir: ./runs # REPLACE WITH YOUR RUN DIR
+    total_steps: 2000
+    loss_scaling: 1.
+    grad_accumulation: 4
+    max_grad_norm: 0.2
+    seed: 113
+    step_per_tick: 1
+    snapshot_ticks: 25
+    state_dump_ticks: 500
+    val_ticks: 1
+    precision: bf16
+    activation_checkpointing: 'whole_layer'
+    num_iterations: 2
+    random_masking: true
+
