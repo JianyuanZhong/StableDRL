@@ -334,6 +334,10 @@ def training_loop(
     effective_gain = loss_scaling / grad_accumulation
     dist.print0(f"Gradient Accumulation: {grad_accumulation}, Effective Gain (Loss Scale): {effective_gain}")
 
+    # Timers for benchmarking
+    timer_stats = {'data': 0.0, 'gen': 0.0, 'loss': 0.0, 'backward': 0.0, 'optim': 0.0}
+    timer_counts = {'data': 0, 'gen': 0, 'loss': 0, 'backward': 0, 'optim': 0}
+
     done = False
     # Buffer for GRPO iterations, keyed by gradient accumulation index
     buffered_inputs = {}
@@ -363,7 +367,10 @@ def training_loop(
                         print(f"Step {training_step}: Start Sampling and Scoring (GRPO cycle start)...")
 
                     try:
+                        t_start_data = time.time()
                         current_batch = next(dataloader_iterator)
+                        timer_stats['data'] += time.time() - t_start_data
+                        timer_counts['data'] += 1
                     except (StopIteration, TypeError):
                         dist.print0("Dataset exhausted or Dataloader error, terminating training.")
                         done = True
@@ -371,6 +378,7 @@ def training_loop(
 
                     # Call the adapted generation and scoring function
                     # Precision is managed by Accelerate.
+                    t_start_gen = time.time()
                     inputs = generate_and_score_completions_spg(
                         model=model,
                         tokenizer=tokenizer,
@@ -384,6 +392,8 @@ def training_loop(
                         num_generations=total_generations_per_prompt,
                         random_masking=random_masking
                     )
+                    timer_stats['gen'] += time.time() - t_start_gen
+                    timer_counts['gen'] += 1
 
                     if inputs is None:
                         dist.print0(f"Warning: Empty or failed batch encountered during generation (Step {training_step}, Round {round_idx}). Skipping.")
@@ -412,6 +422,7 @@ def training_loop(
                 model.train()
 
                 # FIX: Removed manual torch.autocast; rely on Accelerate's precision management
+                t_start_loss = time.time()
                 loss_log_kwargs = compute_loss_spg(
                     model=model,
                     inputs=inputs,
@@ -420,6 +431,8 @@ def training_loop(
                     accelerator=accelerator,
                     random_masking=random_masking # MODIFICATION: Pass the random_masking flag
                 )
+                timer_stats['loss'] += time.time() - t_start_loss
+                timer_counts['loss'] += 1
 
                 # Perform backward pass
                 if 'loss_tensor' in loss_log_kwargs:
@@ -428,11 +441,14 @@ def training_loop(
                     # Use the effective_gain to scale loss for accumulation
                     # Note: Accelerate handles scaling for mixed precision, but we must manually divide by accumulation steps
                     scaled_loss = loss_tensor / grad_accumulation 
-
+                    
+                    t_start_bwd = time.time()
                     if accelerator is not None:
                         accelerator.backward(scaled_loss)
                     else:
                         scaled_loss.backward()
+                    timer_stats['backward'] += time.time() - t_start_bwd
+                    timer_counts['backward'] += 1
 
                     all_loss_log_kwargs.append(loss_log_kwargs)
                 else:
@@ -532,7 +548,10 @@ def training_loop(
             grad_norm_synced = float(_grad_norm)
 
         # Optimization step
+        t_start_optim = time.time()
         optimizer.step()
+        timer_stats['optim'] += time.time() - t_start_optim
+        timer_counts['optim'] += 1
         # scheduler.step(training_step) # Update scheduler based on training_step - MOVED below
 
 
@@ -576,9 +595,19 @@ def training_loop(
             # ... (Other fields omitted for brevity) ...
             'grad_norm': grad_norm_synced,
             'lr': current_lr,
+            't_data': timer_stats['data'] / max(1, timer_counts['data']),
+            't_gen': timer_stats['gen'] / max(1, timer_counts['gen']),
+            't_loss': timer_stats['loss'] / max(1, timer_counts['loss']),
+            't_bwd': timer_stats['backward'] / max(1, timer_counts['backward']),
+            't_opt': timer_stats['optim'] / max(1, timer_counts['optim']),
             **loss_log_kwargs,
         }
         
+        # Reset timers
+        for k in timer_stats:
+            timer_stats[k] = 0.0
+            timer_counts[k] = 0
+
         # Log every tick
         if is_last_acc_step: # and current_itr_idx == 0:
             for key, value in fields.items():
