@@ -1,6 +1,6 @@
-# Self-Normalized Variational Policy Optimization (SVPO)
+# StableDRL
 
-This repository contains the implementation of **SVPO** (Self-Normalized Variational Policy Optimization) for diffusion language models (specifically LLaDA).
+This repository contains the implementation of StableDRL for diffusion language models (specifically LLaDA).
 
 ## Getting Started
 
