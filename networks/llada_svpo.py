@@ -23,9 +23,6 @@ except ImportError:
                 torch.cuda.manual_seed_all(seed)
 
 
-# ===================================================================
-# Model Definition (LLaDOUModelLM) - Unchanged
-# ===================================================================
 
 class LLaDASVPO(LLaDAModelLM):
     # (Implementation remains the same as provided in the prompt)
@@ -108,7 +105,7 @@ def anti_short_boxed_reward(batch, responses, num_generations, device, min_total
 
 
 # ===================================================================
-# SPG Implementation (Adapted from spg_trainer.py)
+# SPG Implementation 
 # ===================================================================
 
 # Define a simple config holder for SPG parameters
